@@ -163,6 +163,24 @@
   .kv:last-child{border-bottom:none}
   .kv span:first-child{color:var(--muted)}
   .linkBtn{background:none;border:none;color:var(--accent);font-size:14px;cursor:pointer;padding:10px 0;font-weight:600}
+
+  /* ---------- Calendar (окна дат капитана) ---------- */
+  .calBox{background:var(--card);border:1.5px solid #27425f;border-radius:14px;padding:12px}
+  .calNav{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .calNav b{font-size:15px}
+  .calNav button{background:var(--card2);border:none;color:var(--text);width:34px;height:34px;border-radius:10px;font-size:18px;cursor:pointer}
+  .calNav button:disabled{opacity:.3}
+  .calGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+  .calH{color:var(--muted);font-size:11px;padding:4px 0}
+  .calDay{padding:8px 0;border-radius:9px;font-size:14px;cursor:pointer;background:#1b3048}
+  .calDay.dis{opacity:.25;cursor:default;background:none}
+  .calDay.st{outline:2px solid var(--accent)}
+  .calDay.in{background:var(--accent);color:#fff}
+  .winList{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+  .winItem{background:var(--card);border:1.5px solid #27425f;border-radius:12px;padding:10px 14px;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+  .winItem button{background:none;border:none;color:var(--danger);font-size:16px;cursor:pointer}
+  .winChip{cursor:pointer}
+  .winChip.sel{background:var(--accent);color:#fff}
 </style>
 </head>
 <body>
@@ -232,6 +250,7 @@
       <div class="big">🎉⚓</div>
       <h2>Это мэтч!</h2>
       <p class="sub" id="mmText"></p>
+      <div class="chips" id="mmDates" style="justify-content:center"></div>
       <a class="btn" style="display:block;margin-top:18px;text-decoration:none" id="mmLink" target="_blank">Написать в Telegram</a>
       <button class="btn" style="display:block;width:100%;margin-top:10px;background:linear-gradient(90deg,var(--sea),#3ad0c0)" onclick="shareApp()">🚀 Позвать друга</button>
       <button class="linkBtn" onclick="closeModal()" style="margin-top:6px">Продолжить поиск</button>
@@ -255,13 +274,15 @@ try{
 }catch(e){}
 
 /* ================= Analytics & sharing ================= */
-const APP_VERSION='S1.1-2026-06-11';
+const APP_VERSION='S2-2026-06-11';
 const METRIKA_ID=109776427;
 const BOT_LINK='https://t.me/cabinmatch_bot/cabinmatch';
 const FEEDBACK_LINK='https://t.me/ealpopov';
+// Атрибуция: пришёл ли пользователь по приглашению (?startapp=friend) или сам
+const START_SOURCE=(()=>{ try{ return tg?.initDataUnsafe?.start_param || 'organic'; }catch(e){ return 'organic'; } })();
 // Безопасная отправка цели: Метрика может быть заблокирована или не загрузиться
 function track(goal,params){
-  try{ if(typeof ym==='function') ym(METRIKA_ID,'reachGoal',goal,params||{}); }catch(e){}
+  try{ if(typeof ym==='function') ym(METRIKA_ID,'reachGoal',goal,{source:START_SOURCE,...(params||{})}); }catch(e){}
 }
 function openLink(url){
   try{ if(tg?.openTelegramLink){ tg.openTelegramLink(url); return; } }catch(e){}
@@ -270,7 +291,7 @@ function openLink(url){
 function shareApp(){
   track('share_click');
   const text='⛵ Тиндер для яхтинга: пройди тест на совместимость и найди капитана или экипаж мечты';
-  openLink('https://t.me/share/url?url='+encodeURIComponent(BOT_LINK)+'&text='+encodeURIComponent(text));
+  openLink('https://t.me/share/url?url='+encodeURIComponent(BOT_LINK+'?startapp=friend')+'&text='+encodeURIComponent(text));
 }
 function openFeedback(){
   track('feedback_click');
@@ -289,7 +310,7 @@ const REGIONS = [
 const SEASONS = [
   {v:'sum', t:'☀️ Лето (июнь–август)'},
   {v:'aut', t:'🍂 Бархатный сезон (сентябрь–октябрь)'},
-  {v:'win', t:'❄️ Зима (Карибы/Азия)'},
+  {v:'win', t:'❄️ Зима (декабрь–март)'},
   {v:'flex',t:'🤙 Гибко, подстроюсь'},
 ];
 const BUDGETS = [
@@ -345,7 +366,7 @@ const Q_CAPTAIN = [
   {id:'cabins', type:'choice', q:'Сколько свободных кают?', opts:[
     {v:1,t:'1 каюта'},{v:2,t:'2 каюты'},{v:3,t:'3 и больше'}]},
   {id:'regions', type:'multi', q:'Где ходишь?', hint:'Можно несколько', opts:REGIONS},
-  {id:'season', type:'choice', q:'Когда ближайшие походы?', opts:SEASONS},
+  {id:'windows', type:'dates', q:'Когда ближайшие походы?', hint:'Отметь открытые окна дат — тап по началу, тап по концу. От 1 до 5 окон'},
   {id:'budget', type:'choice', q:'Стоимость каюты для гостя?', opts:BUDGETS},
   ...COMMON_STYLE.filter(q=>q.id!=='sail').map(capQ).concat([
     {id:'sail', type:'choice', q:'Какой опыт ждёшь от гостей?', opts:[
@@ -358,28 +379,28 @@ const Q_CAPTAIN = [
 /* ================= Mock profiles ================= */
 const MOCK_CAPTAINS = [
   {name:'Андрей', age:47, em:'👨‍✈️', grad:'linear-gradient(135deg,#1c5d99,#2ec4b6)', tg:'cap_andrey_demo', likesYou:true,
-   boat:'Bavaria Cruiser 46 · 2 каюты', a:{regions:['aeg'],season:'sum',budget:2,pace:2,party:2,sail:0,help:1,chrono:0,alco:1,smoke:1,tidy:4},
+   boat:'Bavaria Cruiser 46 · 2 каюты', a:{regions:['aeg'],season:'sum',windows:[{from:'2026-07-04',to:'2026-07-11'},{from:'2026-08-15',to:'2026-08-22'}],budget:2,pace:2,party:2,sail:0,help:1,chrono:0,alco:1,smoke:1,tidy:4},
    bio:'15 лет под парусом, базируюсь в Гёчеке. Спокойные переходы, утренний кофе на палубе, бухты без толп. Научу основам — было бы желание.'},
   {name:'Марина', age:39, em:'👩‍✈️', grad:'linear-gradient(135deg,#7b2ff7,#f107a3)', tg:'sea_marina_demo', likesYou:true,
-   boat:'Lagoon 42 (катамаран) · 3 каюты', a:{regions:['adr','med'],season:'aut',budget:3,pace:4,party:4,sail:1,help:2,chrono:1,alco:2,smoke:1,tidy:3},
+   boat:'Lagoon 42 (катамаран) · 3 каюты', a:{regions:['adr','med'],season:'aut',windows:[{from:'2026-09-12',to:'2026-09-19'},{from:'2026-10-03',to:'2026-10-10'}],budget:3,pace:4,party:4,sail:1,help:2,chrono:1,alco:2,smoke:1,tidy:3},
    bio:'Катамаран = простор и стабильность. Хорватия в сентябре, винные дегустации на островах, SUP и снорклинг каждый день.'},
   {name:'Сергей', age:55, em:'🧔', grad:'linear-gradient(135deg,#0f3443,#34e89e)', tg:'cap_sergey_demo', likesYou:false,
-   boat:'Hanse 508 · 2 каюты', a:{regions:['can'],season:'win',budget:3,pace:3,party:1,sail:2,help:2,chrono:0,alco:0,smoke:0,tidy:5},
+   boat:'Hanse 508 · 2 каюты', a:{regions:['can'],season:'win',windows:[{from:'2026-12-05',to:'2026-12-19'},{from:'2027-01-09',to:'2027-01-23'}],budget:3,pace:3,party:1,sail:2,help:2,chrono:0,alco:0,smoke:0,tidy:5},
    bio:'Серьёзные переходы: Канары, Атлантика. Ищу тех, кто хочет реальной морской практики, а не пляжа. Сухой закон на переходах.'},
   {name:'Дмитрий', age:42, em:'😎', grad:'linear-gradient(135deg,#ff512f,#dd2476)', tg:'cap_dim_demo', likesYou:true,
-   boat:'Beneteau Oceanis 51.1 · 3 каюты', a:{regions:['med','aeg'],season:'sum',budget:4,pace:4,party:5,sail:0,help:0,chrono:2,alco:2,smoke:2,tidy:2},
+   boat:'Beneteau Oceanis 51.1 · 3 каюты', a:{regions:['med','aeg'],season:'sum',windows:[{from:'2026-07-18',to:'2026-07-25'},{from:'2026-08-01',to:'2026-08-08'}],budget:4,pace:4,party:5,sail:0,help:0,chrono:2,alco:2,smoke:2,tidy:2},
    bio:'Лето = Сардиния и Корсика. На борту колонки JBL, гриль на корме и никакого дресс-кода. Главное правило — не ныть.'},
   {name:'Ольга', age:36, em:'🧘‍♀️', grad:'linear-gradient(135deg,#11998e,#38ef7d)', tg:'yoga_olga_demo', likesYou:true,
-   boat:'Dufour 470 · 2 каюты', a:{regions:['aeg'],season:'aut',budget:2,pace:1,party:1,sail:0,help:1,chrono:0,alco:1,smoke:0,tidy:5},
+   boat:'Dufour 470 · 2 каюты', a:{regions:['aeg'],season:'aut',windows:[{from:'2026-09-05',to:'2026-09-12'},{from:'2026-10-17',to:'2026-10-24'}],budget:2,pace:1,party:1,sail:0,help:1,chrono:0,alco:1,smoke:0,tidy:5},
    bio:'Йога-туры под парусом: практика на рассвете, тихие якорные стоянки, вегетарианский камбуз. Идеально для перезагрузки.'},
   {name:'Виктор', age:50, em:'🎣', grad:'linear-gradient(135deg,#373b44,#4286f4)', tg:'cap_viktor_demo', likesYou:false,
-   boat:'Jeanneau 54 · 3 каюты', a:{regions:['car'],season:'win',budget:4,pace:3,party:3,sail:1,help:1,chrono:1,alco:2,smoke:2,tidy:3},
+   boat:'Jeanneau 54 · 3 каюты', a:{regions:['car'],season:'win',windows:[{from:'2026-11-21',to:'2026-12-05'},{from:'2027-02-06',to:'2027-02-20'}],budget:4,pace:3,party:3,sail:1,help:1,chrono:1,alco:2,smoke:2,tidy:3},
    bio:'Зимовка на Карибах: Мартиника → Гренадины. Рыбалка, ром, регги. Каюты с кондиционерами.'},
   {name:'Павел', age:33, em:'🏄', grad:'linear-gradient(135deg,#fc4a1a,#f7b733)', tg:'pasha_sail_demo', likesYou:true,
-   boat:'Elan Impression 45 · 2 каюты', a:{regions:['asia'],season:'win',budget:1,pace:5,party:3,sail:1,help:2,chrono:0,alco:1,smoke:1,tidy:2},
+   boat:'Elan Impression 45 · 2 каюты', a:{regions:['asia'],season:'win',windows:[{from:'2026-12-12',to:'2026-12-26'},{from:'2027-01-16',to:'2027-01-30'}],budget:1,pace:5,party:3,sail:1,help:2,chrono:0,alco:1,smoke:1,tidy:2},
    bio:'Таиланд, Андаманское море. Кайт, вейк, фридайвинг. Бюджетно, по-молодёжному, спим мало — впечатлений много.'},
   {name:'Елена', age:44, em:'👩‍🍳', grad:'linear-gradient(135deg,#654ea3,#eaafc8)', tg:'lena_galley_demo', likesYou:true,
-   boat:'Bali 4.4 (катамаран) · 3 каюты', a:{regions:['med','adr'],season:'flex',budget:3,pace:2,party:2,sail:0,help:0,chrono:1,alco:1,smoke:0,tidy:4},
+   boat:'Bali 4.4 (катамаран) · 3 каюты', a:{regions:['med','adr'],season:'flex',windows:[{from:'2026-06-27',to:'2026-07-04'},{from:'2026-09-19',to:'2026-09-26'}],budget:3,pace:2,party:2,sail:0,help:0,chrono:1,alco:1,smoke:0,tidy:4},
    bio:'Гастро-круизы: рынки, локальные таверны, готовлю сама. Семьи с детьми — welcome, есть детские жилеты.'},
 ];
 const MOCK_GUESTS = [
@@ -403,11 +424,23 @@ const MOCK_GUESTS = [
    bio:'Девичник на воде! Сардиния, пляжные клубы, фотосессии на носу яхты. Капитан с чувством юмора обязателен.'},
 ];
 
-/* ================= State ================= */
+/* ================= State (схема v2) ================= */
 const LS_KEY='cabinmatch_v1';
-let state = load() || {role:null, answers:{}, qi:0, swiped:{}, matches:[]};
+const STATE_V=2;
+function blankState(){ return {v:STATE_V, role:null, answers:{}, qi:0, swiped:{}, matches:[], matchDates:{}}; }
+// Мягкая миграция: v1 (без v/matchDates) дополняем до v2, ничего не теряя;
+// незнакомая будущая версия — не падаем, лишние поля сохраняем как есть
+function migrate(st){
+  if(!st||typeof st!=='object'||Array.isArray(st)) return null;
+  const out={...blankState(),...st};
+  if(!out.v||out.v<STATE_V) out.v=STATE_V;
+  return out;
+}
+const _ls=load();
+let state = _ls || blankState();
+const hadLocal=!!_ls; // для цели cloud_restore: профиль пришёл из облака при пустом LS
 let userActed=false; // пользователь начал анкету — поздний ответ облака уже не применяем
-function load(){ try{return JSON.parse(localStorage.getItem(LS_KEY))}catch(e){return null} }
+function load(){ try{return migrate(JSON.parse(localStorage.getItem(LS_KEY)))}catch(e){return null} }
 function save(){ try{localStorage.setItem(LS_KEY,JSON.stringify(state))}catch(e){} cloudSave(); }
 
 /* ================= Telegram CloudStorage (зеркало state) ================= */
@@ -461,10 +494,55 @@ function cloudClear(){
   }catch(e){}
 }
 
+/* ================= Calendar (окна дат капитана) ================= */
+const MON_F=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+const MON_S=['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
+const CAL_HORIZON=11; // навигация: текущий месяц + 11 вперёд = горизонт 12 месяцев
+let calOffset=0, pendingStart=null;
+function ds(y,m,d){ return y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }
+function todayStr(){ const t=new Date(); return ds(t.getFullYear(),t.getMonth(),t.getDate()); }
+function fmtWin(w){
+  const [,fm,fd]=w.from.split('-').map(Number), [,tm,td]=w.to.split('-').map(Number);
+  if(w.from===w.to) return fd+' '+MON_S[fm-1];
+  if(fm===tm && w.from.slice(0,4)===w.to.slice(0,4)) return fd+'–'+td+' '+MON_S[fm-1];
+  return fd+' '+MON_S[fm-1]+' – '+td+' '+MON_S[tm-1];
+}
+// месяц (0-based) → сезон: май–август sum, сентябрь–октябрь aut, ноябрь–апрель win
+function monthSeason(m){ return (m>=4&&m<=7)?'sum':(m>=8&&m<=9)?'aut':'win'; }
+function deriveSeason(){
+  const set=new Set();
+  (state.answers.windows||[]).forEach(w=>{
+    const [fy,fm]=w.from.split('-').map(Number), [ty,tm]=w.to.split('-').map(Number);
+    for(let cur=fy*12+fm-1, end=ty*12+tm-1; cur<=end; cur++) set.add(monthSeason(cur%12));
+  });
+  state.answers.season=[...set];
+}
+function calTap(d){
+  if(d<todayStr()) return; // прошедшие дни недоступны (дублирует отсутствие onclick)
+  const w=state.answers.windows||(state.answers.windows=[]);
+  if(pendingStart===null){
+    if(w.length>=5) return; // лимит 5 окон
+    pendingStart=d;
+  }else if(d<pendingStart){
+    pendingStart=d; // тап раньше начала — это новое начало
+  }else{
+    w.push({from:pendingStart,to:d});
+    pendingStart=null;
+    deriveSeason();
+  }
+  save(); renderQ();
+}
+function removeWin(i){
+  (state.answers.windows||[]).splice(i,1);
+  deriveSeason(); save(); renderQ();
+}
+function calNav(dir){ calOffset=Math.max(0,Math.min(CAL_HORIZON,calOffset+dir)); renderQ(); }
+
 /* ================= Wizard ================= */
 let QUESTIONS=[];
 function startWizard(role){
   userActed=true;
+  calOffset=0; pendingStart=null;
   state.role=role; state.answers={}; state.qi=0; save();
   track('role_selected',{role});
   QUESTIONS = role==='guest'? Q_GUEST : Q_CAPTAIN;
@@ -491,6 +569,31 @@ function renderQ(){
     h+=`<div class="sliderWrap"><input type="range" min="1" max="5" value="${v}" oninput="state.answers['${q.id}']=+this.value;save()">
         <div class="sliderLabels"><span>${q.min}</span><span>${q.max}</span></div></div>`;
     state.answers[q.id]=v;
+  } else if(q.type==='dates'){
+    const wins=state.answers.windows||[];
+    const base=new Date(), by=base.getFullYear(), bm=base.getMonth();
+    const vy=by+Math.floor((bm+calOffset)/12), vm=(bm+calOffset)%12;
+    const tStr=todayStr();
+    const firstDow=(new Date(vy,vm,1).getDay()+6)%7, dim=new Date(vy,vm+1,0).getDate();
+    const inWin=d=>wins.some(w=>d>=w.from&&d<=w.to);
+    let grid='';
+    ['пн','вт','ср','чт','пт','сб','вс'].forEach(d=>grid+=`<div class="calH">${d}</div>`);
+    for(let i=0;i<firstDow;i++) grid+='<div></div>';
+    for(let d=1;d<=dim;d++){
+      const dstr=ds(vy,vm,d), past=dstr<tStr;
+      const cls='calDay'+(past?' dis':'')+(dstr===pendingStart?' st':'')+(inWin(dstr)?' in':'');
+      grid+=`<div class="${cls}"${past?'':` onclick="calTap('${dstr}')"`}>${d}</div>`;
+    }
+    h+=`<div class="calBox">
+      <div class="calNav">
+        <button onclick="calNav(-1)" ${calOffset===0?'disabled':''}>‹</button>
+        <b>${MON_F[vm]} ${vy}</b>
+        <button onclick="calNav(1)" ${calOffset>=CAL_HORIZON?'disabled':''}>›</button>
+      </div>
+      <div class="calGrid">${grid}</div></div>`;
+    if(pendingStart) h+=`<div class="qHint" style="margin-top:8px">Начало: ${fmtWin({from:pendingStart,to:pendingStart})} — теперь тапни день окончания</div>`;
+    else if(wins.length>=5) h+=`<div class="qHint" style="margin-top:8px">Максимум 5 окон — удали лишнее, чтобы добавить новое</div>`;
+    h+='<div class="winList">'+wins.map((w,i)=>`<div class="winItem">📅 ${fmtWin(w)}<button onclick="removeWin(${i})">✕</button></div>`).join('')+'</div>';
   } else if(q.type==='text'){
     h+=`<input type="text" value="${(cur||'').replace(/"/g,'&quot;')}" oninput="state.answers['${q.id}']=this.value;save()" placeholder="…">`;
   } else if(q.type==='textarea'){
@@ -506,6 +609,7 @@ function pick(id,v,multi){
 function validQ(){
   const q=QUESTIONS[state.qi], v=state.answers[q.id];
   if(q.type==='multi') return Array.isArray(v)&&v.length>0;
+  if(q.type==='dates') return (state.answers.windows||[]).length>=1;
   if(q.type==='text') return !!(v&&v.trim());
   if(q.type==='textarea') return true;
   return v!==undefined&&v!==null;
@@ -522,13 +626,19 @@ function shake(){
 }
 
 /* ================= Scoring ================= */
+// season может быть строкой (гость, старые профили) или массивом (капитан с окнами дат)
+function seasonHit(x,y){
+  const X=Array.isArray(x)?x:[x], Y=Array.isArray(y)?y:[y];
+  if(X.includes('flex')||Y.includes('flex')) return true;
+  return X.some(s=>Y.includes(s));
+}
 function score(me,p){
   const a=p.a; let s=0;
   // region 25
   const myR=me.regions||[], inter=myR.filter(r=>a.regions.includes(r));
   s+= inter.length>0?25: 5;
   // season 15
-  s+= (me.season===a.season||me.season==='flex'||a.season==='flex')?15:4;
+  s+= seasonHit(me.season,a.season)?15:4;
   // budget 20
   const bd=Math.abs((me.budget||2)-a.budget);
   s+= bd===0?20: bd===1?12:3;
@@ -562,7 +672,15 @@ function buildDeck(){
 function chipsFor(p){
   const a=p.a, c=[];
   c.push(...a.regions.map(r=>REGIONS.find(x=>x.v===r).t.split(' ')[0]+' '+REGIONS.find(x=>x.v===r).t.split(' ').slice(1).join(' ').split(' /')[0].split(' (')[0]));
-  c.push(SEASONS.find(s=>s.v===a.season).t);
+  if(a.windows?.length){
+    a.windows.slice(0,3).forEach(w=>c.push('📅 '+fmtWin(w)));
+    if(a.windows.length>3) c.push('+'+(a.windows.length-3));
+  }else if(p.boat){
+    c.push('📅 даты по договорённости'); // старый профиль капитана без окон
+  }else{
+    const sv=Array.isArray(a.season)?a.season[0]:a.season;
+    const st=SEASONS.find(s=>s.v===sv); if(st) c.push(st.t);
+  }
   c.push(BUDGETS.find(b=>b.v===a.budget).t);
   if(a.party>=4)c.push('🎉 Вечеринки'); if(a.party<=2)c.push('🤫 Тишина');
   if(a.pace>=4)c.push('🤿 Активный'); if(a.pace<=2)c.push('🦭 Релакс');
@@ -648,15 +766,43 @@ function renderMatches(){
   const ms=state.matches.map(t=>allProfiles().find(p=>p.tg===t)).filter(Boolean);
   badge.textContent=ms.length; badge.classList.toggle('show',ms.length>0);
   if(!ms.length){ list.innerHTML=`<div class="empty" style="padding:60px 0"><div class="em">🫧</div><span>Пока пусто.<br>Свайпай вправо — мэтчи появятся тут</span></div>`; return; }
-  list.innerHTML=ms.map(p=>`
+  list.innerHTML=ms.map(p=>{
+    const sel=state.matchDates?.[p.tg];
+    // выбор дат доступен только гостю по окнам капитана (у гостя окон нет)
+    const dates = state.role==='guest'&&p.a.windows?.length ? `
+      <div class="chips" style="margin:6px 0 0">${p.a.windows.map((w,i)=>
+        `<div class="chip winChip ${sel&&sel.from===w.from&&sel.to===w.to?'sel':''}" onclick="selectDate('${p.tg}',${i})">📅 ${fmtWin(w)}</div>`).join('')}</div>
+      <span class="mc" style="font-size:12px">${sel?'📅 вы выбрали: '+fmtWin(sel):'тапни окно, чтобы выбрать даты'}</span>` : '';
+    return `
     <div class="mItem">
       <div class="av" style="background:${p.grad}">${p.em}</div>
-      <div><b>${p.name}</b><span class="mc">${p.boat||'Гость'} · ⚡ ${score(state.answers,p)}%</span></div>
+      <div style="flex:1;min-width:0"><b>${p.name}</b><span class="mc">${p.boat||'Гость'} · ⚡ ${score(state.answers,p)}%</span>${dates}</div>
       <a class="tgBtn" href="https://t.me/${p.tg}" target="_blank">Написать</a>
-    </div>`).join('');
+    </div>`;}).join('');
+}
+let currentMatch=null;
+function renderMmDates(){
+  const box=document.getElementById('mmDates'), p=currentMatch;
+  if(!box) return;
+  if(!p || state.role!=='guest' || !p.a.windows?.length){ box.innerHTML=''; return; }
+  const sel=state.matchDates?.[p.tg];
+  box.innerHTML='<div class="sub" style="width:100%;font-size:12px">Выбери даты похода:</div>'+
+    p.a.windows.map((w,i)=>`<div class="chip winChip ${sel&&sel.from===w.from&&sel.to===w.to?'sel':''}" onclick="selectDate('${p.tg}',${i})">📅 ${fmtWin(w)}</div>`).join('');
+}
+function selectDate(tgId,i){
+  const p=allProfiles().find(x=>x.tg===tgId);
+  const w=p?.a?.windows?.[i];
+  if(!w) return;
+  state.matchDates=state.matchDates||{};
+  state.matchDates[tgId]={...w};
+  track('date_selected');
+  save();
+  renderMmDates(); renderMatches();
 }
 function openMatch(p){
+  currentMatch=p;
   document.getElementById('mmText').textContent=`${p.name} тоже отметил(а) тебя! Контакт открыт — договоритесь о датах напрямую.`;
+  renderMmDates();
   document.getElementById('mmLink').href=`https://t.me/${p.tg}`;
   document.getElementById('matchModal').classList.add('show');
   tg?.HapticFeedback?.notificationOccurred('success');
@@ -671,7 +817,8 @@ function renderProfile(){
     ['Имя',a.name||'—'],
     state.role==='captain'?['Яхта',a.boat||'—']:['Состав',{solo:'Один/одна',pair:'Пара',group:'Компания',kids:'С детьми'}[a.crew]||'—'],
     ['Регионы',(a.regions||[]).map(r=>REGIONS.find(x=>x.v===r)?.t).join(', ')||'—'],
-    ['Сезон',SEASONS.find(s=>s.v===a.season)?.t||'—'],
+    a.windows?.length ? ['Даты походов', a.windows.map(fmtWin).join(' · ')]
+      : ['Сезон',SEASONS.find(s=>s.v===(Array.isArray(a.season)?a.season[0]:a.season))?.t||'—'],
     ['Бюджет',BUDGETS.find(b=>b.v===a.budget)?.t||'—'],
     ['Темп',(a.pace??3)+'/5 · Вечеринки '+(a.party??3)+'/5'],
     ['О себе',a.bio||'—'],
@@ -680,7 +827,7 @@ function renderProfile(){
 }
 function resetAll(){
   if(!confirm('Сбросить анкету и мэтчи?'))return;
-  state={role:null,answers:{},qi:0,swiped:{},matches:[]};
+  state=blankState();
   try{localStorage.removeItem(LS_KEY)}catch(e){}
   cloudClear();
   document.getElementById('tabbar').classList.remove('show');
@@ -717,10 +864,12 @@ if(cloud && !isComplete(state)){
   // прячем сплэш, ждём облако, по таймауту показываем сплэш как обычно
   document.getElementById('app').classList.add('booting');
   const veil=setTimeout(finishBoot,2000);
-  cloudLoad(st=>{
+  cloudLoad(raw=>{
     clearTimeout(veil);
+    const st=migrate(raw); // в облаке может лежать state старой схемы
     if(st && isComplete(st) && !userActed && !isComplete(state)){
       state=st; save();
+      if(!hadLocal) track('cloud_restore'); // профиль восстановлен из облака на чистом устройстве
       if(booted){ enterApp(); return; } // облако ответило после таймаута — переключаемся без перезагрузки
     }
     finishBoot();
