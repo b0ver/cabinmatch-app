@@ -275,7 +275,7 @@ try{
 }catch(e){}
 
 /* ================= Analytics & sharing ================= */
-const APP_VERSION='S3-2026-06-11';
+const APP_VERSION='S4-2026-06-11';
 const METRIKA_ID=109776427;
 const BOT_LINK='https://t.me/cabinmatch_bot/cabinmatch';
 const FEEDBACK_LINK='https://t.me/ealpopov';
@@ -312,6 +312,33 @@ function myArchetype(){
 function openQuiz(){
   track('to_quiz');
   openLink(QUIZ_LINK);
+}
+
+/* ================= Sheets-приёмник (fire-and-forget) ================= */
+const SCRIPT_URL='https://script.google.com/macros/s/AKfycbxZgnIlxR46Gju9bVxAK361146jXrJ4ZAoTVlY0uidwcKGoIFdaXJB6ASofY-kNvdvLeQ/exec';
+// no-cors + text/plain — без preflight; ответ не читаем, ошибки глотаем:
+// приёмник недоступен — приложение работает как ни в чём не бывало
+function submitToSheets(type,fields){
+  try{
+    if(typeof fetch!=='function') return;
+    const p=fetch(SCRIPT_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},body:JSON.stringify({type,fields})});
+    if(p&&p.catch) p.catch(()=>{});
+  }catch(e){}
+}
+const ANKETA_FIELDS={
+  captain:['name','boat','cabins','regions','windows','budget','pace','party','sail','help','chrono','alco','smoke','tidy','bio'],
+  guest:['name','crew','regions','season','budget','pace','party','sail','help','chrono','alco','smoke','tidy','bio'],
+};
+function submitAnketa(){
+  const a=state.answers, fields={};
+  (ANKETA_FIELDS[state.role]||[]).forEach(k=>{ if(a[k]!==undefined) fields[k]=a[k]; });
+  fields.tg_id=tgUser?.id??null;
+  fields.tg_username=tgUser?.username??null;
+  let arch=null; try{ arch=JSON.parse(localStorage.getItem('cm_archetype'))?.captain??null; }catch(e){}
+  fields.archetype=arch;
+  fields.source=START_SOURCE;
+  fields.app_version=APP_VERSION;
+  submitToSheets(state.role,fields);
 }
 
 /* ================= Questions ================= */
@@ -614,6 +641,7 @@ function renderQ(){
     h+=`<input type="text" value="${(cur||'').replace(/"/g,'&quot;')}" oninput="state.answers['${q.id}']=this.value;save()" placeholder="…">`;
   } else if(q.type==='textarea'){
     h+=`<textarea rows="4" oninput="state.answers['${q.id}']=this.value;save()" placeholder="…">${cur||''}</textarea>`;
+    if(q.id==='bio') h+=`<div class="qHint" style="margin-top:8px">Тестовый режим: анкета отправляется команде CabinMatch</div>`;
   }
   box.innerHTML=h;
 }
@@ -633,7 +661,7 @@ function validQ(){
 function nextQ(){
   if(!validQ()){ tg?.HapticFeedback?.notificationOccurred('error'); shake(); return; }
   if(state.qi<QUESTIONS.length-1){ state.qi++; save(); renderQ(); }
-  else { save(); track('anketa_done'); buildDeck(); show('deck'); document.getElementById('tabbar').classList.add('show'); }
+  else { save(); track('anketa_done'); submitAnketa(); buildDeck(); show('deck'); document.getElementById('tabbar').classList.add('show'); }
 }
 function prevQ(){ if(state.qi>0){state.qi--;save();renderQ();} }
 function shake(){
