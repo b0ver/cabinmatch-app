@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>CabinMatch — найди свою каюту</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!-- Яндекс.Метрика: tag.js c defer, стаб ym ставит вызовы в очередь до загрузки -->
+<script src="https://mc.yandex.ru/metrika/tag.js" defer></script>
+<script>
+  window.ym=window.ym||function(){(window.ym.a=window.ym.a||[]).push(arguments)};window.ym.l=1*new Date();
+  ym(109776427,'init',{clickmap:true,trackLinks:true,accurateTrackBounce:true});
+</script>
 <style>
   :root{
     --bg:#0b1626; --bg2:#102136; --card:#16293f; --card2:#1d3450;
@@ -158,6 +164,7 @@
 </style>
 </head>
 <body>
+<noscript><div><img src="https://mc.yandex.ru/watch/109776427" style="position:absolute;left:-9999px" alt=""></div></noscript>
 <div id="app">
 
   <!-- SPLASH / ROLE -->
@@ -176,6 +183,7 @@
       </button>
     </div>
     <p class="sub" style="margin-top:14px;font-size:12px">🧪 Тестовый режим: профили напротив — демо-данные</p>
+    <p class="sub" style="margin-top:4px;font-size:11px;opacity:.55" id="appVer"></p>
   </div>
 
   <!-- WIZARD -->
@@ -204,6 +212,7 @@
     <h2>Твои мэтчи</h2>
     <p class="sub" style="margin-bottom:16px">Взаимная симпатия — контакт в Telegram открыт</p>
     <div id="matchList"></div>
+    <button class="btn" style="flex:none;margin-top:14px" onclick="shareApp()">🚀 Позвать друга</button>
   </div>
 
   <!-- PROFILE -->
@@ -211,6 +220,7 @@
     <h2>Моя анкета</h2>
     <p class="sub" style="margin-bottom:16px" id="profRole"></p>
     <div class="profCard" id="profBody"></div>
+    <button class="btn" style="flex:none" onclick="openFeedback()">💬 Фидбек</button>
     <button class="linkBtn" onclick="resetAll()">↺ Пройти анкету заново</button>
   </div>
 
@@ -221,6 +231,7 @@
       <h2>Это мэтч!</h2>
       <p class="sub" id="mmText"></p>
       <a class="btn" style="display:block;margin-top:18px;text-decoration:none" id="mmLink" target="_blank">Написать в Telegram</a>
+      <button class="btn" style="display:block;width:100%;margin-top:10px;background:linear-gradient(90deg,var(--sea),#3ad0c0)" onclick="shareApp()">🚀 Позвать друга</button>
       <button class="linkBtn" onclick="closeModal()" style="margin-top:6px">Продолжить поиск</button>
     </div>
   </div>
@@ -240,6 +251,29 @@ let tgUser = null;
 try{
   if(tg){ tg.ready(); tg.expand(); tg.setHeaderColor('#0b1626'); tg.setBackgroundColor('#0b1626'); tgUser = tg.initDataUnsafe?.user || null; }
 }catch(e){}
+
+/* ================= Analytics & sharing ================= */
+const APP_VERSION='S1-2026-06-11';
+const METRIKA_ID=109776427;
+const BOT_LINK='https://t.me/cabinmatch_bot/cabinmatch';
+const FEEDBACK_LINK='https://t.me/ealpopov';
+// Безопасная отправка цели: Метрика может быть заблокирована или не загрузиться
+function track(goal,params){
+  try{ if(typeof ym==='function') ym(METRIKA_ID,'reachGoal',goal,params||{}); }catch(e){}
+}
+function openLink(url){
+  try{ if(tg?.openTelegramLink){ tg.openTelegramLink(url); return; } }catch(e){}
+  window.open(url,'_blank');
+}
+function shareApp(){
+  track('share_click');
+  const text='⛵ Тиндер для яхтинга: пройди тест на совместимость и найди капитана или экипаж мечты';
+  openLink('https://t.me/share/url?url='+encodeURIComponent(BOT_LINK)+'&text='+encodeURIComponent(text));
+}
+function openFeedback(){
+  track('feedback_click');
+  openLink(FEEDBACK_LINK);
+}
 
 /* ================= Questions ================= */
 const REGIONS = [
@@ -362,6 +396,7 @@ function save(){ try{localStorage.setItem(LS_KEY,JSON.stringify(state))}catch(e)
 let QUESTIONS=[];
 function startWizard(role){
   state.role=role; state.answers={}; state.qi=0; save();
+  track('role_selected',{role});
   QUESTIONS = role==='guest'? Q_GUEST : Q_CAPTAIN;
   if(tgUser?.first_name && !state.answers.name) state.answers.name = tgUser.first_name;
   show('wizard'); renderQ();
@@ -408,7 +443,7 @@ function validQ(){
 function nextQ(){
   if(!validQ()){ tg?.HapticFeedback?.notificationOccurred('error'); shake(); return; }
   if(state.qi<QUESTIONS.length-1){ state.qi++; save(); renderQ(); }
-  else { save(); buildDeck(); show('deck'); document.getElementById('tabbar').classList.add('show'); }
+  else { save(); track('anketa_done'); buildDeck(); show('deck'); document.getElementById('tabbar').classList.add('show'); }
 }
 function prevQ(){ if(state.qi>0){state.qi--;save();renderQ();} }
 function shake(){
@@ -527,8 +562,9 @@ function doSwipe(el,like){
   el.style.opacity='0';
   tg?.HapticFeedback?.impactOccurred('medium');
   state.swiped[p.tg]=like?1:0;
+  if(!state.firstSwipeSent){ state.firstSwipeSent=true; track('first_swipe'); }
   if(like&&p.likesYou&&!state.matches.includes(p.tg)){
-    state.matches.push(p.tg); save();
+    state.matches.push(p.tg); track('match'); save();
     setTimeout(()=>openMatch(p),420);
   } else save();
   setTimeout(()=>{ deckList=deckList.filter(x=>x.tg!==p.tg); renderDeck(); renderMatches(); },380);
@@ -592,6 +628,7 @@ function goTab(id){
 }
 
 /* ================= Boot ================= */
+document.getElementById('appVer').textContent='v '+APP_VERSION;
 if(state.role && state.answers && Object.keys(state.answers).length>3 && state.qi>=( (state.role==='guest'?Q_GUEST:Q_CAPTAIN).length-1)){
   buildDeck(); show('deck'); document.getElementById('tabbar').classList.add('show');
 }
