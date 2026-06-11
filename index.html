@@ -240,6 +240,7 @@
     <h2>Моя анкета</h2>
     <p class="sub" style="margin-bottom:16px" id="profRole"></p>
     <div class="profCard" id="profBody"></div>
+    <button class="btn" style="flex:none;background:linear-gradient(90deg,var(--sea),#3ad0c0);margin-bottom:10px" onclick="openQuiz()">🧭 Тест: какой ты капитан?</button>
     <button class="btn" style="flex:none" onclick="openFeedback()">💬 Фидбек</button>
     <button class="linkBtn" onclick="resetAll()">↺ Пройти анкету заново</button>
   </div>
@@ -274,7 +275,7 @@ try{
 }catch(e){}
 
 /* ================= Analytics & sharing ================= */
-const APP_VERSION='S2-2026-06-11';
+const APP_VERSION='S3-2026-06-11';
 const METRIKA_ID=109776427;
 const BOT_LINK='https://t.me/cabinmatch_bot/cabinmatch';
 const FEEDBACK_LINK='https://t.me/ealpopov';
@@ -296,6 +297,21 @@ function shareApp(){
 function openFeedback(){
   track('feedback_click');
   openLink(FEEDBACK_LINK);
+}
+/* Кросс-линк на квиз «Какой ты капитан?» (второй мини-апп) */
+const QUIZ_LINK='https://t.me/cabinmatch_bot/captain';
+// ключ→имя — дубликат словаря квиза (квиз пишет cm_archetype на общем origin)
+const ARCHETYPES={grey:'Капитан Грэй',vrungel:'Капитан Врунгель',tatarinov:'Капитан Татаринов',
+  nemo:'Капитан Немо',silver:'Джон Сильвер',blood:'Капитан Блад',grant:'Капитан Грант',larsen:'Волк Ларсен'};
+function myArchetype(){
+  try{
+    const a=JSON.parse(localStorage.getItem('cm_archetype'));
+    return ARCHETYPES[a?.captain]||null;
+  }catch(e){return null}
+}
+function openQuiz(){
+  track('to_quiz');
+  openLink(QUIZ_LINK);
 }
 
 /* ================= Questions ================= */
@@ -823,6 +839,8 @@ function renderProfile(){
     ['Темп',(a.pace??3)+'/5 · Вечеринки '+(a.party??3)+'/5'],
     ['О себе',a.bio||'—'],
   ];
+  const arch=myArchetype();
+  if(arch) rows.push(['Твой архетип',arch]);
   document.getElementById('profBody').innerHTML=rows.map(([k,v])=>`<div class="kv"><span>${k}</span><span style="text-align:right;max-width:60%">${v}</span></div>`).join('');
 }
 function resetAll(){
