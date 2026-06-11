@@ -27,6 +27,8 @@
   #app{height:100vh;display:flex;flex-direction:column;max-width:480px;margin:0 auto;position:relative}
   .screen{flex:1;display:none;flex-direction:column;overflow-y:auto;padding:20px 18px 90px}
   .screen.active{display:flex}
+  /* на время загрузки профиля из CloudStorage не мигаем сплэшем */
+  #app.booting .screen.active{display:none}
   h1{font-size:26px;line-height:1.2}
   h2{font-size:20px;margin-bottom:6px}
   .sub{color:var(--muted);font-size:14px;line-height:1.45}
@@ -253,7 +255,7 @@ try{
 }catch(e){}
 
 /* ================= Analytics & sharing ================= */
-const APP_VERSION='S1-2026-06-11';
+const APP_VERSION='S1.1-2026-06-11';
 const METRIKA_ID=109776427;
 const BOT_LINK='https://t.me/cabinmatch_bot/cabinmatch';
 const FEEDBACK_LINK='https://t.me/ealpopov';
@@ -312,6 +314,21 @@ const COMMON_PSY = [
   {id:'tidy', type:'slider', q:'Порядок в общих зонах для тебя…', min:'🌪 Творческий хаос', max:'🧼 Святое'},
 ];
 
+// Ролевые тексты для капитана: меняются ТОЛЬКО формулировки,
+// id/type/шкалы/значения v общие с гостем — скоринг гость↔капитан не зависит от текстов
+const CAPTAIN_TEXTS = {
+  pace:  {q:'Какой формат похода у тебя на борту?', min:'⚓ Якорные стоянки и купание', max:'🧭 Переходы и насыщенный маршрут'},
+  party: {q:'Вечера на твоём борту — это…', min:'🤫 Тишина и звёзды', max:'🎉 Музыка и гости с соседних лодок'},
+  help:  {q:'Насколько вовлекаешь гостей в управление?', opts:[
+    {v:0,t:'🍹 У меня отдыхают — всё делаю сам'},{v:1,t:'🤝 Привлекаю желающих'},{v:2,t:'💪 У меня все стоят вахты'}]},
+  chrono:{q:'Какой режим дня на твоём борту?', opts:[
+    {v:0,t:'🌅 Ранние выходы, рассветы'},{v:1,t:'😴 По настроению'},{v:2,t:'🦉 Поздние подъёмы, ночные посиделки'}]},
+  alco:  {q:'Алкоголь на борту?', opts:[
+    {v:0,t:'🚱 Сухой закон'},{v:1,t:'🍷 Бокал на стоянке — да, на ходу — нет'},{v:2,t:'🍾 Свободно, в разумных пределах'}]},
+  tidy:  {q:'Правила порядка на твоём борту…'},
+};
+const capQ = q => CAPTAIN_TEXTS[q.id] ? {...q, ...CAPTAIN_TEXTS[q.id]} : q;
+
 const Q_GUEST = [
   {id:'name', type:'text', q:'Как тебя зовут?', hint:'Имя увидят капитаны'},
   {id:'crew', type:'choice', q:'С кем ты едешь?', opts:[
@@ -330,11 +347,11 @@ const Q_CAPTAIN = [
   {id:'regions', type:'multi', q:'Где ходишь?', hint:'Можно несколько', opts:REGIONS},
   {id:'season', type:'choice', q:'Когда ближайшие походы?', opts:SEASONS},
   {id:'budget', type:'choice', q:'Стоимость каюты для гостя?', opts:BUDGETS},
-  ...COMMON_STYLE.filter(q=>q.id!=='sail').concat([
+  ...COMMON_STYLE.filter(q=>q.id!=='sail').map(capQ).concat([
     {id:'sail', type:'choice', q:'Какой опыт ждёшь от гостей?', opts:[
       {v:0,t:'🌱 Любой, всему научу'},{v:1,t:'⛵ Хотя бы раз ходили'},{v:2,t:'🧭 Уверенные матросы'},{v:3,t:'👨‍✈️ Только опытные'}]}
   ]),
-  ...COMMON_PSY,
+  ...COMMON_PSY.map(capQ),
   {id:'bio', type:'textarea', q:'Расскажи о себе и лодке', hint:'Маршруты, атмосфера на борту, что включено'},
 ];
 
@@ -389,12 +406,65 @@ const MOCK_GUESTS = [
 /* ================= State ================= */
 const LS_KEY='cabinmatch_v1';
 let state = load() || {role:null, answers:{}, qi:0, swiped:{}, matches:[]};
+let userActed=false; // пользователь начал анкету — поздний ответ облака уже не применяем
 function load(){ try{return JSON.parse(localStorage.getItem(LS_KEY))}catch(e){return null} }
-function save(){ try{localStorage.setItem(LS_KEY,JSON.stringify(state))}catch(e){} }
+function save(){ try{localStorage.setItem(LS_KEY,JSON.stringify(state))}catch(e){} cloudSave(); }
+
+/* ================= Telegram CloudStorage (зеркало state) ================= */
+const CS_CHUNK=4000;        // лимит CloudStorage — 4096 символов на значение, берём с запасом
+const CS_META='cm_meta';    // число чанков; данные в cm_state_0..N
+const cloud=(()=>{
+  try{
+    if(tg?.CloudStorage && typeof tg.CloudStorage.setItem==='function' &&
+       (typeof tg.isVersionAtLeast!=='function' || tg.isVersionAtLeast('6.9'))) return tg.CloudStorage;
+  }catch(e){}
+  return null;
+})();
+let cloudTimer=null;
+function cloudSave(){ // дебаунс ~1.5с: у CloudStorage есть rate limit
+  if(!cloud) return;
+  clearTimeout(cloudTimer);
+  cloudTimer=setTimeout(()=>{
+    try{
+      const json=JSON.stringify(state), chunks=[];
+      for(let i=0;i<json.length;i+=CS_CHUNK) chunks.push(json.slice(i,i+CS_CHUNK));
+      chunks.forEach((c,i)=>cloud.setItem('cm_state_'+i,c,()=>{}));
+      cloud.setItem(CS_META,String(chunks.length),()=>{}); // мета — последней
+    }catch(e){}
+  },1500);
+}
+function cloudLoad(cb){ // cb(state|null) — любой сбой трактуем как «облако пустое»
+  if(!cloud) return cb(null);
+  try{
+    cloud.getItem(CS_META,(err,n)=>{
+      const count=parseInt(n,10);
+      if(err||!count) return cb(null);
+      const keys=Array.from({length:count},(_,i)=>'cm_state_'+i);
+      cloud.getItems(keys,(err2,vals)=>{
+        if(err2||!vals) return cb(null);
+        try{
+          const st=JSON.parse(keys.map(k=>vals[k]||'').join(''));
+          cb(st&&typeof st==='object'?st:null);
+        }catch(e){cb(null)}
+      });
+    });
+  }catch(e){cb(null)}
+}
+function cloudClear(){
+  if(!cloud) return;
+  clearTimeout(cloudTimer); // отменяем отложенную запись, чтобы не воскресить стёртое
+  try{
+    cloud.getItem(CS_META,(err,n)=>{
+      const count=parseInt(n,10)||0;
+      cloud.removeItems([CS_META,...Array.from({length:count},(_,i)=>'cm_state_'+i)],()=>{});
+    });
+  }catch(e){}
+}
 
 /* ================= Wizard ================= */
 let QUESTIONS=[];
 function startWizard(role){
+  userActed=true;
   state.role=role; state.answers={}; state.qi=0; save();
   track('role_selected',{role});
   QUESTIONS = role==='guest'? Q_GUEST : Q_CAPTAIN;
@@ -610,7 +680,9 @@ function renderProfile(){
 }
 function resetAll(){
   if(!confirm('Сбросить анкету и мэтчи?'))return;
-  state={role:null,answers:{},qi:0,swiped:{},matches:[]}; save();
+  state={role:null,answers:{},qi:0,swiped:{},matches:[]};
+  try{localStorage.removeItem(LS_KEY)}catch(e){}
+  cloudClear();
   document.getElementById('tabbar').classList.remove('show');
   show('splash');
 }
@@ -629,8 +701,32 @@ function goTab(id){
 
 /* ================= Boot ================= */
 document.getElementById('appVer').textContent='v '+APP_VERSION;
-if(state.role && state.answers && Object.keys(state.answers).length>3 && state.qi>=( (state.role==='guest'?Q_GUEST:Q_CAPTAIN).length-1)){
-  buildDeck(); show('deck'); document.getElementById('tabbar').classList.add('show');
+function isComplete(st){
+  if(!st||!st.role||!st.answers) return false;
+  return Object.keys(st.answers).length>3 && st.qi>=((st.role==='guest'?Q_GUEST:Q_CAPTAIN).length-1);
+}
+function enterApp(){ buildDeck(); show('deck'); document.getElementById('tabbar').classList.add('show'); }
+let booted=false;
+function finishBoot(){
+  if(booted) return; booted=true;
+  document.getElementById('app').classList.remove('booting');
+  if(isComplete(state)) enterApp(); else show('splash');
+}
+if(cloud && !isComplete(state)){
+  // профиль может лежать в облаке (другое устройство / чищеный кэш):
+  // прячем сплэш, ждём облако, по таймауту показываем сплэш как обычно
+  document.getElementById('app').classList.add('booting');
+  const veil=setTimeout(finishBoot,2000);
+  cloudLoad(st=>{
+    clearTimeout(veil);
+    if(st && isComplete(st) && !userActed && !isComplete(state)){
+      state=st; save();
+      if(booted){ enterApp(); return; } // облако ответило после таймаута — переключаемся без перезагрузки
+    }
+    finishBoot();
+  });
+}else{
+  finishBoot();
 }
 </script>
 </body>
